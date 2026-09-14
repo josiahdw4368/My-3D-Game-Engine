@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>My Attempted 3D Game Engine</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/>
+		<link rel="stylesheet" href="https://unpkg.com/7.css">
+		<style>
+			body { overflow: hidden; margin: 0px; }
+			#sidebar { width: 24.92vw; height: 100vh; position: absolute; border-right: 1px solid black; }
+			#sidebar-div { width: 100%; height: 100%; padding: 4px; }
+			#bottombar { width: 75vw; height: 25vh; position: absolute; left: 24.93vw; bottom: 0px; border-right: 1px solid black; }
+			#bottombar-div { width: 100%; height: 100%; padding: 4px; }
+			.title-bar { height: auto; border-radius: 0px; border-top: 0px;}
+			.title-bar-text { margin: 0px; }
+			h1, h2, h3, label { margin: 0px; font: 12pt "Segoe UI","SegoeUI","Noto Sans",sans-serif; text-align: center; }
+			hr { width: 95%; margin: 4px; }
+			input[type=range] { width: 95%; }
+			input[type=number] { width: 20%; }
+			.loader { display: none; position: fixed; left: 0; top: 0; pointer-events: none; }
+			input[type=color] { margin: 4px; }
+		</style>
+	</head>
+	<body>
+		<div id="sidebar" style="overflow: scroll;">
+			<div class="title-bar">
+				<p class="title-bar-text">Side-Bar</p>
+			</div>
+			<h3>Scene Tree</h3>
+			<ul class="tree-view has-connector has-collapse-button" id="scene-tree"></ul>
+			<button id="add-object" type="button" style="width: 95%; margin-left: 5px;">Add Object</button>
+			<hr/>
+			<div id="sidebar-div">
+				<h3>Misc. Settings</h3>
+				<hr/>
+				<input type="checkbox" id="lower-quality">
+				<label for="lower-quality">Lower Quality</label>
+				<br/>
+				<input type="color" id="sky-color">
+				<label for="sky-color" style="font-size: 12px;">Sky Color</label>
+				<br/>
+				<input type="checkbox" id="sunlight-visible" checked>
+				<label for="sunlight-visible">Sunlight/Directional Lighting?</label>
+			</div>
+		</div>
+		<div id="bottombar">
+			<div class="title-bar">
+				<p class="title-bar-text">Bottom-Bar</p>
+			</div>
+			<div id="bottombar-div">
+				<h3>Hello, World!</h3>
+			</div>
+		</div>
+		<script type="module">
+			import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js';
+			
+			const scene = new THREE.Scene();
+			const camera = new THREE.PerspectiveCamera(75,
+				window.innerWidth / window.innerHeight,
+				0.1,
+				1000
+			);
+			camera.enableZoom = false;
+			
+			const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "low-power" });
+			renderer.setSize(
+				window.innerWidth * 0.5,
+				window.innerHeight * 0.5,
+				false
+			);
+			renderer.shadowMap.enabled = true;
+			renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+			
+			scene.color = document.getElementById("sky-color").value;
+			
+			let objects = [
+				{
+					id: crypto.randomUUID(),
+					name: "DEFAULT",
+					geometry: "cube",
+					position: [0, 0, 0],
+					rotation: [0, 0, 0],
+					scale: [1, 1, 1],
+					material: {
+						color: "#00ffff",
+						specular: "#ffffff",
+						shininess: 50
+					},
+					mesh: null
+				}
+			];
+			
+			document.getElementById("lower-quality").addEventListener("change", () => {
+				if (document.getElementById("lower-quality").checked) {
+					renderer.setSize(
+						window.innerWidth * 0.25,
+						window.innerHeight * 0.25,
+						false
+					);
+				} else {
+					renderer.setSize(
+						window.innerWidth * 0.5,
+						window.innerHeight * 0.5,
+						false
+					);
+				}
+			});
+			
+			document.body.appendChild(renderer.domElement);
+			
+			renderer.domElement.style.width = "75vw";
+			renderer.domElement.style.height = "75vh";
+			renderer.domElement.style.marginLeft = "auto";
+			renderer.domElement.style.imageRendering = "pixelated";
+			renderer.outputColorSpace = THREE.SRGBColorSpace;
+			renderer.toneMapping = THREE.NoToneMapping;
+			renderer.setPixelRatio(1);
+			
+			camera.position.z = 7;
+			
+			let directionalLight = new THREE.DirectionalLight(
+  				0xffffff,
+  				2
+  			);
+  			directionalLight.position.set(3, 3, 5);
+  			directionalLight.castShadow = true;
+			
+			directionalLight.shadow.mapSize.set(4096, 4096);
+			directionalLight.shadow.bias = -0.0005;
+			
+			const shadowCamera = directionalLight.shadow.camera;
+			shadowCamera.near = 0.5;
+			shadowCamera.far = 20;
+			shadowCamera.left = -6;
+			shadowCamera.right = 6;
+			shadowCamera.top = 6;
+			shadowCamera.bottom = -6;
+			
+			scene.add(directionalLight);
+  			
+  			const ambientLight = new THREE.AmbientLight(
+  				0xffffff,
+  				0.3
+  			);
+  			scene.add(ambientLight);
+			
+			function createGeometry(type) {
+				switch (type) {
+					case "cube":
+						return new THREE.BoxGeometry(2,2,2);
+					case "sphere":
+						return new THREE.SphereGeometry(1.25,32,16);
+					case "torus":
+						return new THREE.TorusGeometry(1.5,0.45,16,48);
+					case "cylinder":
+						return new THREE.CylinderGeometry(1,1,2,32);
+					case "cone":
+						return new THREE.ConeGeometry(1,2,32);
+					case "plane":
+						return new THREE.PlaneGeometry(2,2);
+					default:
+						throw new Error(`Unknown object type: ${type}`);
+				}
+			}
+			
+			function create_object(data) {
+				const GeometryClass = geometryTypes[data.geometry.type];
+				
+				if (!GeometryClass) {
+					throw new Error(`UNKNOWN GEOMETRY TYPE: ${data.geometry.type}`);
+				}
+				
+				const geometry = new GeometryClass(
+					...data.geometry.args
+				);
+				
+				const material = new THREE.MeshPhongMaterial(
+					data.material.properties
+				);
+				
+				const mesh = new THREE.Mesh(geometry, material);
+				mesh.name = data.name || `${data.type} OBJECT`;
+				mesh.position.fromArray(
+					data.position || [0, 0, 0]
+				);
+				
+				mesh.rotation.fromArray(
+					data.rotation || [0, 0, 0]
+				);
+				
+				mesh.scale.fromArray(
+					data.scale || [1, 1, 1]
+				);
+				
+				mesh.castShadow = true;
+				mesh.receiveShadow = true;
+				scene.add(mesh);
+				return mesh;
+			}
+			
+			function setVectorInputs(inputs, values) {
+				inputs.forEach((input, index) => {
+					input.value = values[index];
+				});
+			}
+			
+			function connectVectorEditor(editor, selector, dataArray, threeVector) {
+				const inputs = editor.querySelectorAll(selector);
+			
+				inputs.forEach(input => {
+					input.addEventListener("input", () => {
+						const axis = Number(input.dataset.axis);
+						const value = Number(input.value);
+			
+						if (Number.isNaN(value)) {
+							return;
+						}
+			
+						dataArray[axis] = value;
+			
+						threeVector.set(
+							dataArray[0],
+							dataArray[1],
+							dataArray[2]
+						);
+					});
+				});
+			}
+			
+			function connectObjectEditor(editor, object) {
+				const mesh = object.mesh;
+			
+				const nameInput = editor.querySelector(".object-name");
+				const geometryInput = editor.querySelector(".object-geometry");
+				const colorInput = editor.querySelector(".object-color");
+				const specularInput = editor.querySelector(".object-specular");
+				const shininessInput = editor.querySelector(".object-shininess");
+				const shininessValue = editor.querySelector(".object-shininess-value");
+			
+				nameInput.addEventListener("input", () => {
+					object.name = nameInput.value;
+					mesh.name = object.name;
+			
+					editor.querySelector("summary").textContent =
+						object.name || "Unnamed Object";
+				});
+			
+				geometryInput.addEventListener("change", () => {
+					const oldGeometry = mesh.geometry;
+			
+					object.geometry = geometryInput.value;
+					mesh.geometry = createGeometry(object.geometry);
+			
+					mesh.material.side = object.geometry === "plane"
+						? THREE.DoubleSide
+						: THREE.FrontSide;
+			
+					oldGeometry.dispose();
+				});
+			
+				colorInput.addEventListener("input", () => {
+					object.material.color = colorInput.value;
+					mesh.material.color.set(object.material.color);
+				});
+			
+				specularInput.addEventListener("input", () => {
+					object.material.specular = specularInput.value;
+					mesh.material.specular.set(object.material.specular);
+				});
+			
+				shininessInput.addEventListener("input", () => {
+					object.material.shininess = Number(shininessInput.value);
+					mesh.material.shininess = object.material.shininess;
+					shininessValue.textContent = object.material.shininess;
+				});
+			
+				connectVectorEditor(
+					editor,
+					".position",
+					object.position,
+					mesh.position
+				);
+			
+				connectVectorEditor(
+					editor,
+					".rotation",
+					object.rotation,
+					mesh.rotation
+				);
+			
+				connectVectorEditor(
+					editor,
+					".scale",
+					object.scale,
+					mesh.scale
+				);
+			
+				editor.querySelector(".delete-object").addEventListener("click", () => {
+					scene.remove(mesh);
+			
+					mesh.geometry.dispose();
+					mesh.material.dispose();
+			
+					objects = objects.filter(item => item.id !== object.id);
+			
+					renderSceneTree();
+				});
+			}
+
+
+			function createMesh(object) {
+				const geometry = createGeometry(object.geometry);
+			
+				const material = new THREE.MeshPhongMaterial({
+					color: object.material.color,
+					shininess: object.material.shininess,
+					specular: object.material.specular,
+					side: object.geometry === "plane"
+							? THREE.DoubleSide
+							: THREE.FrontSide
+				});
+			
+				const mesh = new THREE.Mesh(geometry, material);
+			
+				mesh.name = object.name;
+				mesh.position.fromArray(object.position);
+				mesh.rotation.fromArray(object.rotation);
+				mesh.scale.fromArray(object.scale);
+			
+				mesh.castShadow = true;
+				mesh.receiveShadow = true;
+				
+				scene.add(mesh);
+				object.mesh = mesh;
+			
+				return mesh;
+			}
+
+			function renderSceneTree() {
+				const tree = document.getElementById("scene-tree");
+				tree.replaceChildren();
+			
+				for (const object of objects) {
+					const details = document.createElement("details");
+					details.dataset.id = object.id;
+					
+					const summary = document.createElement("summary");
+					summary.textContent = object.name || "Unnamed Object";
+					
+					const list = document.createElement("ul");
+					
+					list.innerHTML = `
+						<li>
+							NAME:
+							<input
+								class="object-name"
+								type="text"
+								value="${object.name}"
+							>
+						</li>
+			
+						<li>
+							GEOMETRY:
+							<select class="object-geometry">
+								<option value="cube">cube</option>
+								<option value="sphere">sphere</option>
+								<option value="cylinder">cylinder</option>
+								<option value="cone">cone</option>
+								<option value="torus">torus</option>
+								<option value="plane">plane</option>
+							</select>
+						</li>
+			
+						<li>
+							POSITION:
+							<input class="position" data-axis="0" type="number" step="0.1">
+							<input class="position" data-axis="1" type="number" step="0.1">
+							<input class="position" data-axis="2" type="number" step="0.1">
+						</li>
+			
+						<li>
+							ROTATION:
+							<input class="rotation" data-axis="0" type="number" step="0.1">
+							<input class="rotation" data-axis="1" type="number" step="0.1">
+							<input class="rotation" data-axis="2" type="number" step="0.1">
+						</li>
+			
+						<li>
+							SCALE:
+							<input class="scale" data-axis="0" type="number" step="0.1">
+							<input class="scale" data-axis="1" type="number" step="0.1">
+							<input class="scale" data-axis="2" type="number" step="0.1">
+						</li>
+						<li>
+							COLOR:
+							<input class="object-color" type="color">
+						</li>
+						<li>
+							SPECULAR:
+							<input class="object-specular" type="color">
+						</li>
+						<li>
+							SHININESS:
+							<input class="object-shininess" type="range" min="0" max="200" step="1">
+							<span class="object-shininess-value"></span>
+						</li>
+						<li>
+							<button class="delete-object" type="button" style="color: #ff0000;">
+								Delete
+							</button>
+						</li>
+					`;
+			
+					tree.appendChild(details);
+			
+					const nameInput = list.querySelector(".object-name");
+					const geometryInput = list.querySelector(".object-geometry");
+					const colorInput = list.querySelector(".object-color");
+					const specularInput = list.querySelector(".object-specular");
+					const shininessInput = list.querySelector(".object-shininess");
+					const shininessValue = list.querySelector(".object-shininess-value");
+					
+					colorInput.value = object.material.color;
+					specularInput.value = object.material.specular;
+					shininessInput.value = object.material.shininess;
+					shininessValue.textContent = object.material.shininess;
+					
+					nameInput.value = object.name;
+					geometryInput.value = object.geometry;
+			
+					setVectorInputs(
+						list.querySelectorAll(".position"),
+						object.position
+					);
+			
+					setVectorInputs(
+						list.querySelectorAll(".rotation"),
+						object.rotation
+					);
+			
+					setVectorInputs(
+						list.querySelectorAll(".scale"),
+						object.scale
+					);
+					
+					
+					details.appendChild(list);
+					details.appendChild(summary);
+					connectObjectEditor(details, object);
+				}
+			}
+			
+			function animate() {
+				scene.background = new THREE.Color(document.getElementById("sky-color").value);
+				renderer.render(scene, camera);
+				requestAnimationFrame(animate);
+			}
+			
+			for (const object of objects) {
+				createMesh(object);
+			}
+			
+			renderSceneTree();
+			
+			document.getElementById("sunlight-visible").addEventListener("change", () => {
+				directionalLight.visible = document.getElementById("sunlight-visible").checked;
+			});
+			
+			document.getElementById("add-object").addEventListener("click", () => {
+				const object = {
+					id: crypto.randomUUID(),
+					name: `Object ${objects.length + 1}`,
+					geometry: "cube",
+					position: [0, 0, 0],
+					rotation: [0, 0, 0],
+					scale: [1, 1, 1],
+					material: {
+						color: "#00ffff",
+						specular: "#ffffff",
+						shininess: 50
+					},
+					mesh: null
+				};
+				
+				objects.push(object);
+				createMesh(object);
+				renderSceneTree();
+			});
+			
+			animate();
+		</script>
+	</body>
+</html>
